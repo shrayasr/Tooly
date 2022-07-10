@@ -1,0 +1,76 @@
+﻿@page "/PGCopyGenerator"
+@using System.Text.RegularExpressions
+
+<div class="row">
+    <div class="col">
+        <h1>PostgreSQL <code>copy</code> Command Generator</h1>
+    </div>
+</div>
+
+<hr/>
+
+<div class="row">
+    <div class="col">
+        <h2>Inputs</h2>
+    </div>
+</div>
+
+<div class="row mt-2">
+    <div class="col">
+        <div class="form-floating">
+            <textarea @bind="query" id="queryTextarea" style="height: 300px; font-family: monospace" class="form-control"></textarea>
+            <label for="queryTextarea">Query</label>
+            <div class="form-text">The query which you need to run to export</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="form-floating">
+            <input @bind="destination" style="font-family: monospace" type="text" class="form-control" />
+            <label>Destination</label>
+            <div class="form-text">Destination (<b>on the server</b>) to export the CSV to</div>
+        </div>
+        <div class="d-grid mt-4">
+            <button @onclick="GenerateCommand" type="button" class="btn btn-lg btn-primary">Generate</button>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col">
+        <h2>Output</h2>
+    </div>
+</div>
+
+<div class="row mt-2">
+    <div class="col">
+        <div class="form-floating">
+            <textarea @ref="outputTextarea" style="height: 100px; font-family: monospace" class="form-control">@output</textarea>
+            <label>Copy Query</label>
+        </div>
+    </div>
+</div>
+
+
+@code 
+{
+    private ElementReference outputTextarea;
+
+    private string? query;
+    private string? destination;
+
+    private string? output;
+
+    private void GenerateCommand()
+    {
+        if (query != null && destination != null)
+        {
+            var querySingleLine = Regex.Replace(query, @"\s+", " ");
+            var copyCommand = @$"\copy ({querySingleLine}) to '{destination}' with csv delimiter ',' header";
+
+            output = copyCommand;
+
+            outputTextarea.FocusAsync();
+        }
+
+    }
+}
