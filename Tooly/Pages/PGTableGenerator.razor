@@ -1,3 +1,232 @@
 ﻿@page "/PGTableGenerator"
+@using Tooly.Models
 
-<h1>PostgreSQL Table Generator</h1>
+<div class="row">
+    <div class="col">
+        <h1>PostgreSQL Table Generator</h1>
+    </div>
+</div>
+
+<hr/>
+
+<div class="row mt-2">
+    <div class="col-6">
+        <div class="form-floating">
+            <textarea @bind="definitionText" style="height: 500px" class="form-control font-monospace"></textarea>
+            <label>Definition</label>
+        </div>
+        <div class="mt-2">
+            <details>
+                <summary>Example</summary>
+                <pre>
+#customers
+bigserial id
+text name
+$PK id
+|
+#customeraddresses
+bigserial id
+bigint customerid
+text address
+$PK id
+$FK customerid customers,id
+                </pre>
+            </details>
+        </div>
+        <div class="d-grid mt-2">
+            <button @onclick="Process" type="button" class="btn btn-lg btn-primary">Generate</button>
+        </div>
+    </div>
+    <div class="col-6">
+        <table class="table table-bordered">
+            <tbody>
+                <tr>
+                    <th>Table definition</th>
+                    <td><code>#&lt;table name&gt;</code></td>
+                </tr>
+                <tr>
+                    <th>Column definition</th>
+                    <td>
+                        <code>&lt;data type&gt; &lt;column name&gt; [length]</code>
+
+                        <hr />
+
+                        Where <code>data type</code> can be any one of:
+                        <ul class="font-monospace">
+                            <li>serial</li>
+                            <li>bigserial</li>
+                            <li>int</li>
+                            <li>bigint</li>
+                            <li>string</li>
+                            <li>bool</li>
+                            <li>timestamp/tz</li>
+                            <li>timestampz/tzz</li>
+                            <li>float</li>
+                            <li>text</li>
+                            <li>jsonb</li>
+                            <li>blob</li>
+                        </ul>
+                        
+                    </td>
+                </tr>
+                <tr>
+                    <th>Primary Key</th>
+                    <td>
+                        <code>$PK &lt;column name&gt;</code>
+                    </td>
+                </tr>
+                <tr>
+                    <th>Foreign Key</th>
+                    <td>
+                        <code>$FK &lt;column name&gt; &lt;target table&gt;,&lt;target column name&gt;</code>
+                    </td>
+                </tr>
+                <tr>
+                    <th>Unique Key</th>
+                    <td><code>$UK &lt;column name&gt;</code></td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="alert alert-info">
+            <h4>Notes</h4>
+            <ul>
+                <li>Separate multiple definitions with a pipe symbol (<code>|</code>)</li>
+                <li><code>length</code> is mandatory if the <code>data type</code> is <code>string or float</code></li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-2">
+    <div class="col">
+        <h2>Outputs</h2>
+    </div>
+</div>
+
+<div class="row mt-2">
+    <div class="col-6">
+        <div class="form-floating">
+            <textarea @ref="outputTextarea" style="height: 500px" class="form-control font-monospace">@sqlStatements</textarea>
+            <label>Table definition</label>
+        </div>
+    </div>
+    <div class="col-6">
+        <div class="form-floating">
+            <textarea style="height: 500px" class="form-control font-monospace">@cSharpStatements</textarea>
+            <label>C# Definition</label>
+        </div>
+    </div>
+</div>
+
+<br/>
+<br/>
+<br/>
+<br/>
+
+@code
+{
+    private string? definitionText;
+
+    private string? sqlStatements;
+    private string? cSharpStatements;
+
+    private ElementReference outputTextarea;
+
+    private void Process()
+    {
+        if (definitionText == null) return;
+
+        var definitions = definitionText.Split('|').ToList();
+
+        var (sql, csharp) = GenerateSQL(definitions);
+
+        sqlStatements = sql;
+        cSharpStatements = csharp;
+
+        outputTextarea.FocusAsync();
+    }
+
+    private (string, string) GenerateSQL(List<string> definitions)
+    {
+        var sql = "";
+        var cs = "";
+
+        //if (includeTransactionMarkers.Checked)
+        //{
+        //    sql += "BEGIN TRANSACTION;\n";
+        //    sql += "\n";
+        //}
+
+        foreach (var definition in definitions)
+        {
+            var table = GenerateTable(definition);
+            sql += table.ToString();
+            sql += "\n\n";
+
+            cs += table.ToCSString();
+            cs += "\n\n";
+        }
+
+        //if (includeTransactionMarkers.Checked)
+        //{
+        //    sql += "";
+        //    sql += "COMMIT;";
+        //}
+
+        return (sql, cs);
+    }
+
+    Table GenerateTable(string definition)
+    {
+        definition = definition.Trim();
+
+        if (definition == "--")
+        {
+            return null;
+        }
+
+        var line1 = definition.Split('\n')[0];
+        if (!line1.StartsWith("#"))
+        {
+            throw new ArgumentException("no table name found");
+        }
+
+        var schemaName = "";
+        var tableName = line1.Replace("#", "").Trim();
+
+        if (tableName.Contains("."))
+        {
+            schemaName = tableName.Split('.')[0].ToString();
+            tableName = tableName.Split('.')[1].ToString();
+        }
+
+        var table = new Table
+        {
+            SchemaName = schemaName,
+            Name = tableName
+        };
+
+        foreach (var line in definition.Trim().Split('\n'))
+        {
+            var defn = line.Trim();
+
+            if (defn.StartsWith("#"))
+            {
+                continue; // already handled, table name
+            }
+
+            if (defn.StartsWith("$"))
+            {
+                table.AddKey(defn);
+            }
+            else
+            {
+                table.AddField(defn);
+            }
+        }
+
+        return table;
+    }
+
+
+}
