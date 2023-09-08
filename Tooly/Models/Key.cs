@@ -29,16 +29,16 @@ namespace Tooly.Models
             if (KeyType.ToUpper() == "PK")
             {
                 constraintName = $"{TableName.ToLower()}_pkey";
-                constraintDetails = $"PRIMARY KEY ({PKColName})";
+                constraintDetails = $"PRIMARY KEY ({PKColName.ToLower()})";
             }
             else if (KeyType.ToUpper() == "FK")
             {
                 constraintName = $"{TableName.ToLower()}_{FKToTableName.ToLower().Replace(".", "_")}_fk";
-                constraintDetails = $"FOREIGN KEY ({FKFromColName}) REFERENCES {FKToTableName}({FKToColName})";
+                constraintDetails = $"FOREIGN KEY ({FKFromColName.ToLower()}) REFERENCES {FKToTableName.ToLower()}({FKToColName.ToLower()})";
             }
             else if (KeyType.ToUpper() == "UK")
             {
-                constraintName = $"{TableName.ToLower()}_ukey";
+                constraintName = $"{TableName.ToLower()}_{UKColName.ToLower()}_ukey";
                 constraintDetails = $"UNIQUE ({UKColName})";
             }
 
