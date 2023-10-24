@@ -39,7 +39,7 @@ namespace Tooly.Models
             else if (KeyType.ToUpper() == "UK")
             {
                 constraintName = $"{TableName.ToLower()}_{UKColName.ToLower()}_ukey";
-                constraintDetails = $"UNIQUE ({UKColName})";
+                constraintDetails = $"UNIQUE ({UKColName.ToLower()})";
             }
 
             return $"CONSTRAINT {constraintName} {constraintDetails}";
