@@ -12,7 +12,7 @@
 <div class="row mt-2">
     <div class="col-6">
         <div class="form-floating">
-            <textarea @bind="definitionText" style="height: 500px" class="form-control font-monospace"></textarea>
+            <textarea @bind="definitionText" style="height: 500px" class="form-control font-monospace" spellcheck="false"></textarea>
             <label>Definition</label>
         </div>
         <div class="mt-2">
@@ -106,13 +106,13 @@ $FK customerid customers,id
 <div class="row mt-2">
     <div class="col-6">
         <div class="form-floating">
-            <textarea @ref="outputTextarea" style="height: 500px" class="form-control font-monospace">@sqlStatements</textarea>
+            <textarea @ref="outputTextarea" style="height: 500px" class="form-control font-monospace" spellcheck="false">@sqlStatements</textarea>
             <label>Table definition</label>
         </div>
     </div>
     <div class="col-6">
         <div class="form-floating">
-            <textarea style="height: 500px" class="form-control font-monospace">@cSharpStatements</textarea>
+            <textarea style="height: 500px" class="form-control font-monospace" spellcheck="false">@cSharpStatements</textarea>
             <label>C# Definition</label>
         </div>
     </div>
