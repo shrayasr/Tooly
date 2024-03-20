@@ -38,7 +38,24 @@ namespace Tooly.Models
             }
             else if (KeyType.ToUpper() == "UK")
             {
-                constraintName = $"{TableName.ToLower()}_{UKColName.ToLower()}_ukey";
+                var uniqueKeyColumns = UKColName.ToLower();
+                
+                if (uniqueKeyColumns.Split(',').Length > 1)
+                {
+                    // multi column UK
+                    var uniqueKeyName = string.Join(
+                                                "_",
+                                                uniqueKeyColumns
+                                                    .Split(',')
+                                                    .Select(u => u.Trim()));
+
+                    constraintName = $"{TableName.ToLower()}_{uniqueKeyName}_ukey";
+                }
+                else
+                {
+                    constraintName = $"{TableName.ToLower()}_{UKColName.ToLower()}_ukey";
+                }
+
                 constraintDetails = $"UNIQUE ({UKColName.ToLower()})";
             }
 
