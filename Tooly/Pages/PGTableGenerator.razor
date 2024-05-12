@@ -1,5 +1,8 @@
 ﻿@page "/PGTableGenerator"
+@using System.Text.RegularExpressions;
+@using System.Text;
 @using Tooly.Models
+@using Tooly.Util;
 
 <div class="row">
     <div class="col">
@@ -136,97 +139,302 @@ $FK customerid customers,id
     {
         if (definitionText == null) return;
 
-        var definitions = definitionText.Split('|').ToList();
+        cSharpStatements = "// Because these are generated, the casing will be wrong in the class name and field names. Please double check it.\n";
+        cSharpStatements += "// Delete these comments when you bring this code into your project\n\n";
 
-        var (sql, csharp) = GenerateSQL(definitions);
+        var tables = GetTableDefinitionStrings(definitionText);
 
-        sqlStatements = sql;
-        cSharpStatements = csharp;
+        foreach (var table in tables)
+        {
+            var tableDefinitionStrings = ParseTable(table);
+            var ddl = ConvertToPGSQL(tableDefinitionStrings);
+            var cs = ConvertToCSharp(tableDefinitionStrings);
+
+            sqlStatements += ddl;
+            sqlStatements += "\n\n";
+
+            cSharpStatements += cs;
+        }
 
         outputTextarea.FocusAsync();
     }
 
-    private (string, string) GenerateSQL(List<string> definitions)
+    string ConvertToCSharp(TableDefinitionStrings def)
     {
-        var sql = "";
-        var cs = "";
+        var code = new StringBuilder();
 
-        //if (includeTransactionMarkers.Checked)
-        //{
-        //    sql += "BEGIN TRANSACTION;\n";
-        //    sql += "\n";
-        //}
+        var className = def.TableNameLine?.TrimStart('#').Capitalize();
 
-        foreach (var definition in definitions)
+        if (string.IsNullOrEmpty(className))
         {
-            var table = GenerateTable(definition);
-            sql += table.ToString();
-            sql += "\n\n";
-
-            cs += table.ToCSString();
-            cs += "\n\n";
+            throw new ArgumentNullException(className);
         }
 
-        //if (includeTransactionMarkers.Checked)
-        //{
-        //    sql += "";
-        //    sql += "COMMIT;";
-        //}
+        code.AppendLine();
+        code.AppendLine("[DAO]");
+        code.AppendLine("[Validatable]");
+        code.AppendLine($"public partial class {className}");
+        code.AppendLine("{");
 
-        return (sql, cs);
-    }
+        code.AppendJoin("\n", def.ColumnLines.Select(c => $"\t{ConvertToPropertyDefinition(c)}"));
 
-    Table GenerateTable(string definition)
-    {
-        definition = definition.Trim();
+        code.AppendLine();
+        code.AppendLine("}");
 
-        if (definition == "--")
+        return code.ToString();
+
+        string ConvertToPropertyDefinition(string columnLine)
         {
-            return null;
-        }
+            var source = Regex.Replace(
+                                columnLine.Trim(),
+                                @"\s+", " ");
 
-        var line1 = definition.Split('\n')[0];
-        if (!line1.StartsWith("#"))
-        {
-            throw new ArgumentException("no table name found");
-        }
+            var sourceParts = source.Split(' ');
+            var type = sourceParts.ElementAtOrDefault(0)?.ToLowerInvariant();
+            var name = sourceParts.ElementAtOrDefault(1)?.ToLowerInvariant();
 
-        var schemaName = "";
-        var tableName = line1.Replace("#", "").Trim();
-
-        if (tableName.Contains("."))
-        {
-            schemaName = tableName.Split('.')[0].ToString();
-            tableName = tableName.Split('.')[1].ToString();
-        }
-
-        var table = new Table
-        {
-            SchemaName = schemaName,
-            Name = tableName
-        };
-
-        foreach (var line in definition.Trim().Split('\n'))
-        {
-            var defn = line.Trim();
-
-            if (defn.StartsWith("#"))
+            if (string.IsNullOrEmpty(name))
             {
-                continue; // already handled, table name
+                throw new ArgumentNullException(name);
             }
 
-            if (defn.StartsWith("$"))
+            if (string.IsNullOrEmpty(type))
             {
-                table.AddKey(defn);
+                throw new ArgumentNullException(type);
             }
-            else
-            {
-                table.AddField(defn);
-            }
-        }
 
-        return table;
+            var nullString = name.EndsWith("?")
+                                ? "?"
+                                : "";
+
+            name = name.TrimEnd('?');
+
+            var csType = type switch
+            {
+                "serial" => "int",
+                "bigserial" => "long",
+                "int" => "int",
+                "bigint" => "long",
+                "bool" => "bool",
+                "string" => $"string",
+
+                "tz" or
+                "timestamp" => "LocalDateTime",
+
+                "tzz" or
+                "timestampz" => "Instant",
+
+                "float" => $"decimal",
+                "text" => "string",
+
+                "jsonb" => "JsonbString",
+                "blob" => "byte[]",
+
+                _ => throw new InvalidOperationException($"That column type '{type}' is not implemented yet")
+            };
+
+            return $"{csType} {name.Capitalize()} {{ get; set; }}";
+        }
     }
 
 
+    string ConvertToPGSQL(TableDefinitionStrings def)
+    {
+        var ddl = new StringBuilder();
+
+        var tableName = def.TableNameLine?.TrimStart('#').ToLowerInvariant();
+
+        ddl.AppendLine($"create table {tableName} (");
+
+        var tableBodyLines = new List<string>();
+
+        var columnLines = def.ColumnLines.Select(c => $"\t{ConvertToPGColumn(c)}");
+        var constraintLines = def.ConstraintLines.Select(s => $"\t{ConvertToPGColumnConstraint(s)}");
+
+        ddl.AppendJoin(",\n", columnLines);
+        ddl.AppendLine(",");
+
+        ddl.AppendLine();
+
+        ddl.AppendJoin(",\n", constraintLines);
+
+        ddl.AppendLine(string.Join(",\n", tableBodyLines));
+        ddl.AppendLine(");");
+
+        if (def.HasRLS)
+        {
+            ddl.AppendLine();
+            ddl.AppendLine(GetRLSPolicy(def.RLSLine));
+        }
+
+        return ddl.ToString();
+
+        string GetRLSPolicy(string? rlsLine)
+        {
+            var rlsParts = rlsLine?.Split(" ", 2).Select(l => l.Trim());
+            var usingExpression = rlsParts?.ElementAtOrDefault(1)?.ToLowerInvariant();
+
+            if (string.IsNullOrEmpty(usingExpression))
+            {
+                throw new ArgumentNullException(usingExpression);
+            }
+
+            var rlsPolicy = $"ALTER TABLE {tableName} ENABLE ROW LEVEL SECURITY;\n";
+            rlsPolicy += $"CREATE POLICY {tableName}_isolation_policy ON {tableName} USING ({usingExpression});";
+
+            return rlsPolicy;
+        }
+
+        string ConvertToPGColumnConstraint(string constraintLine)
+        {
+            var constraint = Regex.Replace(
+                                    constraintLine.Trim(),
+                                    @"\s+", " ");
+
+            var constraintParts = constraint.Split(" ");
+            var type = constraintParts.ElementAtOrDefault(0)?.ToLowerInvariant();
+            var arg1 = constraintParts.ElementAtOrDefault(1)?.ToLowerInvariant();
+            var arg2 = constraintParts.ElementAtOrDefault(2)?.ToLowerInvariant();
+
+            if (string.IsNullOrEmpty(arg1))
+            {
+                throw new ArgumentNullException(arg1);
+            }
+
+            string constraintName;
+            string constraintType;
+            string constraintArgs;
+
+            switch (type)
+            {
+                case "$pk":
+                    constraintName = $"{tableName}_pkey";
+                    constraintType = "PRIMARY KEY";
+                    constraintArgs = $"({arg1})";
+                    break;
+
+                case "$fk":
+                    var arg2Parts = arg2?.Split(",").Select(p => p.Trim());
+                    var refTableName = arg2Parts?.ElementAtOrDefault(0)?.ToLowerInvariant();
+                    var refTableColumnName = arg2Parts?.ElementAtOrDefault(1)?.ToLowerInvariant();
+
+                    if (string.IsNullOrEmpty(refTableName) || string.IsNullOrEmpty(refTableColumnName))
+                    {
+                        throw new ArgumentNullException(arg2);
+                    }
+
+                    constraintName = $"{tableName}_{refTableName}_fkey";
+                    constraintType = "FOREIGN KEY";
+                    constraintArgs = $"{arg1} REFERENCES {refTableName} ({refTableColumnName})";
+                    break;
+
+                case "$uk":
+                    var ukColumnsForKey = string.Join(
+                                                    "_",
+                                                    arg1
+                                                        .Split(",")
+                                                        .Select(a => a.Trim().ToLowerInvariant())
+                                            );
+
+                    constraintName = $"{tableName}_{ukColumnsForKey}_ukey";
+                    constraintType = "UNIQUE KEY";
+                    constraintArgs = $"({arg1})";
+                    break;
+
+                default:
+                    throw new NotImplementedException($"That constraint '{type}' is not implemented yet");
+            }
+
+            return $"CONSTRAINT {constraintName} {constraintType} {constraintArgs}";
+        }
+
+        string ConvertToPGColumn(string sourceLine)
+        {
+            var source = Regex.Replace(
+                                sourceLine.Trim(),
+                                @"\s+", " ");
+
+            var sourceParts = source.Split(' ');
+            var type = sourceParts.ElementAtOrDefault(0)?.ToLowerInvariant();
+            var name = sourceParts.ElementAtOrDefault(1)?.ToLowerInvariant();
+            var length = sourceParts.ElementAtOrDefault(2); // optional
+
+            if (string.IsNullOrEmpty(name))
+            {
+                throw new ArgumentNullException(name);
+            }
+
+            if (string.IsNullOrEmpty(type))
+            {
+                throw new ArgumentNullException(type);
+            }
+
+            var nullString = name.EndsWith("?")
+                                ? "NULL"
+                                : "NOT NULL";
+
+            name = name.TrimEnd('?');
+
+            var typeAndLengthString = type switch
+            {
+                "serial" => "serial",
+                "bigserial" => "bigserial",
+                "int" => "integer",
+                "bigint" => "bigint",
+                "bool" => "bool",
+                "string" => $"character varying ({length})",
+
+                "tz" or
+                "timestamp" => "timestamp without time zone",
+
+                "tzz" or
+                "timestampz" => "timestamp with time zone",
+
+                "float" => $"decimal ({length})",
+                "text" => "text",
+
+                "jsonb" => "jsonb",
+                "blob" => "bytea",
+
+                _ => throw new InvalidOperationException($"That column type '{type}' is not implemented yet")
+            };
+
+            return $"{name} {typeAndLengthString} {nullString}";
+        }
+    }
+
+
+    TableDefinitionStrings ParseTable(string table)
+    {
+        var lines = table.Split('\n').Select(l => l.Trim());
+
+        var tableNameLine = lines.Where(l => l.StartsWith('#')).FirstOrDefault();
+        var rlsLine = lines.Where(l => l.StartsWith("!")).FirstOrDefault();
+        var constraintLines = lines.Where(l => l.StartsWith('$'));
+        var columnLines = lines.Where(l => !l.StartsWith('#') && !l.StartsWith('$') && !l.StartsWith("!"));
+
+        return new TableDefinitionStrings(
+                    table,
+                    tableNameLine,
+                    constraintLines,
+                    columnLines,
+                    rlsLine);
+    }
+
+
+    List<string> GetTableDefinitionStrings(string tableDefinition)
+    {
+        return Regex.Split(tableDefinition, @"\n\s*\n").ToList();
+    }
+
+    public record TableDefinitionStrings(
+        string source,
+        string? TableNameLine,
+        IEnumerable<string> ConstraintLines,
+        IEnumerable<string> ColumnLines,
+        string? RLSLine
+    )
+    {
+        public bool HasRLS => !string.IsNullOrEmpty(RLSLine);
+    }
 }
