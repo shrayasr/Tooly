@@ -23,16 +23,20 @@
                 <summary>Example</summary>
                 <pre>
 #customers
+bigint tenantid
 bigserial id
 text name
 $PK id
-|
+!rls tenantid = get_tenant_id()
+
 #customeraddresses
+bigint tenantid
 bigserial id
 bigint customerid
 text address
 $PK id
 $FK customerid customers,id
+!rls tenantid = get_tenant_id()
                 </pre>
             </details>
         </div>
@@ -86,14 +90,18 @@ $FK customerid customers,id
                 </tr>
                 <tr>
                     <th>Unique Key</th>
-                    <td><code>$UK &lt;column name&gt;</code></td>
+                    <td><code>$UK &lt;column names&gt;</code></td>
+                </tr>
+                <tr>
+                    <th>RLS policy</th>
+                    <td><code>!rls &lt;using expression&gt;</code></td>
                 </tr>
             </tbody>
         </table>
         <div class="alert alert-info">
             <h4>Notes</h4>
             <ul>
-                <li>Separate multiple definitions with a pipe symbol (<code>|</code>)</li>
+                <li>Separate multiple definitions with an empty line</li>
                 <li><code>length</code> is mandatory if the <code>data type</code> is <code>string or float</code></li>
             </ul>
         </div>
@@ -141,6 +149,8 @@ $FK customerid customers,id
 
         cSharpStatements = "// Because these are generated, the casing will be wrong in the class name and field names. Please double check it.\n";
         cSharpStatements += "// Delete these comments when you bring this code into your project\n\n";
+
+        sqlStatements = "";
 
         var tables = GetTableDefinitionStrings(definitionText);
 
